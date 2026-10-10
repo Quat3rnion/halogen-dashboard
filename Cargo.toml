@@ -1,0 +1,6 @@
+[workspace]
+members = ["crates/collector"]
+resolver = "3"
+
+[profile.release]
+lto = "thin"

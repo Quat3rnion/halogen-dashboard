@@ -1,0 +1,35 @@
+# Copy .env.example to .env and set the values. Compose reads .env.
+# ADR 0001: the Collector must be the only reader of Halogen /metrics.
+
+services:
+  halogen-dashboard:
+    build: .
+    image: halogen-dashboard:latest
+    restart: unless-stopped
+    environment:
+      HALOGEN_URL: ${HALOGEN_URL:?set HALOGEN_URL in .env}
+      HALOGEN_DASHBOARD_LISTEN: 0.0.0.0:8790
+      HALOGEN_DASHBOARD_DB: /data/halogen-dashboard.sqlite
+      RUST_LOG: ${RUST_LOG:-info}
+      TZ: ${TZ:-UTC}
+    ports:
+      - "${HALOGEN_DASHBOARD_BIND:-127.0.0.1}:${HALOGEN_DASHBOARD_PORT:-8790}:8790"
+    volumes:
+      - halogen-dashboard-data:/data
+
+  # Development only: `docker compose --profile sim up` and set
+  # HALOGEN_URL=http://fake-halogen:8791 in .env.
+  fake-halogen:
+    profiles: ["sim"]
+    image: halogen-dashboard:latest
+    entrypoint: ["fake-halogen"]
+    environment:
+      FAKE_HALOGEN_LISTEN: 0.0.0.0:8791
+      FAKE_HALOGEN_SEED: ${FAKE_HALOGEN_SEED:-1}
+      FAKE_HALOGEN_SPEED: ${FAKE_HALOGEN_SPEED:-1.0}
+      FAKE_HALOGEN_CHAOS: ${FAKE_HALOGEN_CHAOS:-false}
+    healthcheck:
+      disable: true
+
+volumes:
+  halogen-dashboard-data:

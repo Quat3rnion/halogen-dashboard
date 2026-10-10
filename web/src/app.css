@@ -1,0 +1,273 @@
+/* Halogen dashboard. Deep violet, restrained. */
+
+:root {
+  --font: 'IBM Plex Sans Variable', 'IBM Plex Sans', system-ui, sans-serif;
+
+  --fs-xs: 0.75rem; /* 12 px: axis, captions */
+  --fs-sm: 0.8125rem; /* 13 px: labels, tables */
+  --fs-md: 0.9375rem; /* 15 px: panel titles */
+  --fs-lg: 1.625rem; /* 26 px: tile values */
+
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+
+  --r-card: 10px;
+  --r-tile: 8px;
+  --r-ctl: 6px;
+  --r-pill: 999px;
+
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+:root,
+:root[data-theme='dark'] {
+  --bg: #0d0a14;
+  --surface: #15111f;
+  --raised: #1e182b;
+  --line: #2e2643;
+  --line-soft: #231c33;
+  --text: #ece8f5;
+  --muted: #a79dbd;
+  --faint: #8b81a2;
+  --accent: #b69cff;
+  --accent-ink: #160d2c;
+  --accent-soft: rgba(182, 156, 255, 0.14);
+  --focus: #d4c4ff;
+
+  --s1: #b69cff;
+  --s2: #3ed6bd;
+  --s3: #f2b84b;
+  --s4: #f283c0;
+  --s5: #6cb8f5;
+
+  --up: #3ddc97;
+  --degraded: #f5b544;
+  --down: #ff6b7a;
+  --warn-bg: rgba(245, 181, 68, 0.1);
+  --warn-line: rgba(245, 181, 68, 0.55);
+  --crit-bg: rgba(255, 107, 122, 0.12);
+  --crit-line: rgba(255, 107, 122, 0.6);
+
+  --band-outage: rgba(255, 107, 122, 0.17);
+  --band-degraded: rgba(245, 181, 68, 0.09);
+  --marker: rgba(236, 232, 245, 0.55);
+  --grid: rgba(167, 157, 189, 0.12);
+  --header-bg: rgba(13, 10, 20, 0.88);
+}
+
+:root[data-theme='light'] {
+  --bg: #f6f4fb;
+  --surface: #ffffff;
+  --raised: #f0ecf8;
+  --line: #ddd5ec;
+  --line-soft: #ebe6f4;
+  --text: #1b1430;
+  --muted: #5b5070;
+  --faint: #6c6283;
+  --accent: #5b2bb5;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(91, 43, 181, 0.09);
+  --focus: #5b2bb5;
+
+  --s1: #6d3fd1;
+  --s2: #0d8576;
+  --s3: #b5730a;
+  --s4: #c2387f;
+  --s5: #1f74bd;
+
+  --up: #0f7a4f;
+  --degraded: #a35f00;
+  --down: #c2283b;
+  --warn-bg: rgba(181, 115, 10, 0.08);
+  --warn-line: rgba(163, 95, 0, 0.55);
+  --crit-bg: rgba(194, 40, 59, 0.07);
+  --crit-line: rgba(194, 40, 59, 0.55);
+
+  --band-outage: rgba(194, 40, 59, 0.13);
+  --band-degraded: rgba(181, 115, 10, 0.08);
+  --marker: rgba(27, 20, 48, 0.5);
+  --grid: rgba(91, 80, 112, 0.12);
+  --header-bg: rgba(246, 244, 251, 0.9);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 100%;
+  -webkit-text-size-adjust: 100%;
+  /* The sticky header must not cover the focused element. */
+  scroll-padding-top: 72px;
+}
+
+@media (max-width: 720px) {
+  html {
+    scroll-padding-top: 0;
+  }
+}
+
+.skip {
+  position: absolute;
+  left: var(--sp-3);
+  top: -100px;
+  z-index: 20;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-radius: var(--r-ctl);
+  font-weight: 600;
+}
+.skip:focus-visible {
+  top: var(--sp-2);
+}
+
+body {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+  min-height: 100vh;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+h2 {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: var(--accent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-card);
+}
+
+/* uPlot base (from uPlot.min.css, the parts the page uses) */
+.uplot,
+.uplot *,
+.uplot *::before,
+.uplot *::after {
+  box-sizing: border-box;
+}
+.uplot {
+  font-family: var(--font);
+  line-height: 1.5;
+  width: min-content;
+}
+.u-wrap {
+  position: relative;
+  user-select: none;
+}
+.u-over,
+.u-under {
+  position: absolute;
+}
+.u-under {
+  overflow: hidden;
+}
+.uplot canvas {
+  display: block;
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+.u-axis {
+  position: absolute;
+}
+.u-select {
+  background: var(--accent-soft);
+  position: absolute;
+  pointer-events: none;
+}
+.u-cursor-x,
+.u-cursor-y {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  will-change: transform;
+}
+.u-hz .u-cursor-x,
+.u-vt .u-cursor-y {
+  height: 100%;
+  border-right: 1px dashed var(--faint);
+}
+.u-hz .u-cursor-y,
+.u-vt .u-cursor-x {
+  width: 100%;
+  border-bottom: 1px dashed var(--faint);
+}
+.u-cursor-pt {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: 50%;
+  border: 0 solid;
+  pointer-events: none;
+  will-change: transform;
+  background-clip: padding-box !important;
+}
+.u-axis.u-off,
+.u-select.u-off,
+.u-cursor-x.u-off,
+.u-cursor-y.u-off,
+.u-cursor-pt.u-off {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
