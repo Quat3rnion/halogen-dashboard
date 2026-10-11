@@ -137,7 +137,7 @@ impl CounterTracker {
                 queued: m.get("llamacpp:requests_deferred").copied(),
                 kv_used,
                 kv_reserved: m.get("halogen:kv_pool_reserved_tokens").copied(),
-                kv_use: kv_used.zip(pool).and_then(|(a, b)| ratio(a, b)),
+                kv_use: m.get("llamacpp:kv_cache_usage_ratio").copied(),
                 totals: Some(totals(&counters)),
                 ..Default::default()
             },
@@ -199,6 +199,19 @@ mod tests {
             "llamacpp:prompt_tokens_seconds {ps}\nllamacpp:predicted_tokens_seconds {gs}\n"
         ));
         text
+    }
+    #[test]
+    fn kv_use_comes_from_halogen_usage_ratio() {
+        let mut tracker = CounterTracker::default();
+        let fixture = include_str!("../../../fixtures/halogen-0.17.3/metrics.txt");
+        let (f, _) = tracker.sample(1000, Some(fixture), Status::Up);
+        assert_eq!(f.sample.kv_use, Some(0.000244141));
+        let (f, _) = tracker.sample(
+            2000,
+            Some("llamacpp:kv_cache_tokens 5\nhalogen:kv_pool_positions 10\n"),
+            Status::Up,
+        );
+        assert_eq!(f.sample.kv_use, None);
     }
     #[test]
     fn counters_remain_adjusted_across_restart() {

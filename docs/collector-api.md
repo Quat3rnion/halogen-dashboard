@@ -65,7 +65,7 @@ interface Sample {
   queued: number | null;     // llamacpp:requests_deferred
   kv_used: number | null;    // llamacpp:kv_cache_tokens
   kv_reserved: number | null;// halogen:kv_pool_reserved_tokens
-  kv_use: number | null;     // kv_used / kv_pool, 0..1
+  kv_use: number | null;     // llamacpp:kv_cache_usage_ratio, 0..1
   gen_speed: number | null;
   throughput: number | null;
   prefill_speed: number | null;
