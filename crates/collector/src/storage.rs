@@ -1,5 +1,5 @@
 use crate::{
-    rates::{Frame, apply_rates, totals},
+    rates::{Frame, apply_rates, cache_totals, totals},
     types::{Event, Sample, Status},
 };
 use anyhow::{Context, Result, bail};
@@ -10,7 +10,7 @@ use std::{collections::BTreeMap, path::Path};
 
 pub const RAW_MS: i64 = 48 * 60 * 60 * 1000;
 pub const RETAIN_MS: i64 = 30 * 24 * 60 * 60 * 1000;
-pub const FIELDS: [&str; 15] = [
+pub const FIELDS: [&str; 25] = [
     "busy_slots",
     "queued",
     "kv_used",
@@ -26,9 +26,19 @@ pub const FIELDS: [&str; 15] = [
     "prompt_cache_hit_rate",
     "draft_acceptance",
     "kv_pool",
+    "busy_for",
+    "kv_waiting",
+    "cache_entries",
+    "cache_bytes",
+    "cache_lookup_hit_rate",
+    "cache_evictions_per_min",
+    "cache_rewrites_per_min",
+    "cache_disk_hits_per_min",
+    "cache_disk_cut_backs_per_min",
+    "cache_disk_bytes",
 ];
 
-fn values(frame: &Frame) -> [Option<f64>; 15] {
+fn values(frame: &Frame) -> [Option<f64>; FIELDS.len()] {
     let s = &frame.sample;
     [
         s.busy_slots,
@@ -48,6 +58,16 @@ fn values(frame: &Frame) -> [Option<f64>; 15] {
         s.prompt_cache_hit_rate,
         s.draft_acceptance,
         frame.kv_pool,
+        s.busy_for,
+        s.kv_waiting,
+        s.cache_entries,
+        s.cache_bytes,
+        s.cache_lookup_hit_rate,
+        s.cache_evictions_per_min,
+        s.cache_rewrites_per_min,
+        s.cache_disk_hits_per_min,
+        s.cache_disk_cut_backs_per_min,
+        s.cache_disk_bytes,
     ]
 }
 
@@ -85,16 +105,24 @@ impl Stat {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Rollup {
     pub t: i64,
-    pub stats: [Stat; 15],
+    #[serde(deserialize_with = "read_stats")]
+    pub stats: Vec<Stat>,
     pub status: Status,
     pub first: Frame,
     pub last: Frame,
+}
+
+fn read_stats<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec<Stat>, D::Error> {
+    let mut stats = Vec::<Stat>::deserialize(deserializer)?;
+    // Existing stored Rollups contain 15 stats. Preserve their positions.
+    stats.resize(FIELDS.len(), Stat::default());
+    Ok(stats)
 }
 impl Rollup {
     pub fn new(frame: &Frame) -> Self {
         let mut r = Self {
             t: frame.sample.t / 60_000 * 60_000,
-            stats: [Stat::default(); 15],
+            stats: vec![Stat::default(); FIELDS.len()],
             status: frame.sample.status,
             first: frame.clone(),
             last: frame.clone(),
@@ -249,7 +277,13 @@ impl Store {
         for name in FIELDS {
             result[name] = json!([]);
         }
-        for name in ["busy_slots_max", "queued_max", "kv_use_max"] {
+        for name in [
+            "busy_slots_max",
+            "queued_max",
+            "kv_use_max",
+            "busy_for_max",
+            "kv_waiting_max",
+        ] {
             result[name] = json!([]);
         }
         for t in (start..=to).step_by(step as usize) {
@@ -259,10 +293,11 @@ impl Store {
                 .as_array_mut()
                 .unwrap()
                 .push(json!(r.map(|r| r.status)));
-            let mut vs = r.map(|r| r.stats.map(|s| s.mean())).unwrap_or([None; 15]);
+            let mut vs: [Option<f64>; FIELDS.len()] =
+                std::array::from_fn(|i| r.and_then(|r| r.stats[i].mean()));
             if let Some(r) = r {
                 if r.status == Status::Down {
-                    vs = [None; 15];
+                    vs = [None; FIELDS.len()];
                 } else {
                     let last = &r.last;
                     let boundary = last.sample.t - window;
@@ -284,12 +319,25 @@ impl Store {
                         s.prompt_cache_hit_rate,
                         s.draft_acceptance,
                     ]);
+                    vs[19..24].copy_from_slice(&[
+                        s.cache_lookup_hit_rate,
+                        s.cache_evictions_per_min,
+                        s.cache_rewrites_per_min,
+                        s.cache_disk_hits_per_min,
+                        s.cache_disk_cut_backs_per_min,
+                    ]);
                 }
             }
             for (name, v) in FIELDS.iter().zip(vs) {
                 result[*name].as_array_mut().unwrap().push(json!(v));
             }
-            for (name, index) in [("busy_slots_max", 0), ("queued_max", 1), ("kv_use_max", 4)] {
+            for (name, index) in [
+                ("busy_slots_max", 0),
+                ("queued_max", 1),
+                ("kv_use_max", 4),
+                ("busy_for_max", 15),
+                ("kv_waiting_max", 16),
+            ] {
                 result[name].as_array_mut().unwrap().push(json!(
                     r.filter(|r| r.status != Status::Down)
                         .and_then(|r| r.stats[index].max)
@@ -310,12 +358,20 @@ impl Store {
             .rev()
             .find(|f| f.sample.t <= to && f.sample.totals.is_some());
         let mut delta = [0.0; 11];
+        let mut cache_delta = [0.0; 6];
         if let (Some(a), Some(b)) = (first, last) {
             for (i, v) in delta.iter_mut().enumerate() {
                 *v = (b.counters[i] - a.counters[i]).max(0.0);
             }
+            let a = a.sample.totals.unwrap_or_default().cache_counters();
+            let b = b.sample.totals.unwrap_or_default().cache_counters();
+            for (i, v) in cache_delta.iter_mut().enumerate() {
+                *v = (b[i] - a[i]).max(0.0);
+            }
         }
-        result["totals_in_range"] = serde_json::to_value(totals(&delta))?;
+        let mut totals = totals(&delta);
+        cache_totals(&mut totals, &cache_delta);
+        result["totals_in_range"] = serde_json::to_value(totals)?;
         Ok(result)
     }
 }
@@ -348,6 +404,39 @@ pub fn selection(from: i64, to: i64, step: Option<i64>, now: i64) -> Result<(i64
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cache_series_recomputes_rates_and_keeps_gauge_means_and_maxima() {
+        let mut tracker = crate::rates::CounterTracker::default();
+        let mut store = Store::open(":memory:").unwrap();
+        for sec in 0..=90 {
+            let text = format!(
+                "halogen:cache_hits_total {}\nhalogen:cache_misses_total {}\nhalogen:cache_evicted_total {}\nhalogen:cache_last_message_rewrites_total {}\nhalogen:cache_disk_hits_total {}\nhalogen:cache_disk_cut_back_total {}\nhalogen:busy_for_seconds {}\nhalogen:kv_pool_waiting_for_room {}\nhalogen:cache_entries 4\nhalogen:cache_bytes 400\nhalogen:cache_disk_bytes 0",
+                sec * 3,
+                sec,
+                sec * 2,
+                sec,
+                sec * 4,
+                sec * 5,
+                sec,
+                sec
+            );
+            let (mut f, _) = tracker.sample(sec * 1000, Some(&text), Status::Up);
+            f.sample.cache_lookup_hit_rate = Some(999.0);
+            store.insert(&f, true).unwrap();
+        }
+        for step in [30_000, 60_000] {
+            let series = store.series(0, 90_000, Some(step), 90_000).unwrap();
+            assert_eq!(series["cache_lookup_hit_rate"][0], 0.75);
+            assert_eq!(series["cache_evictions_per_min"][0], 120.0);
+            assert_eq!(series["cache_rewrites_per_min"][0], 60.0);
+            assert_eq!(series["cache_disk_hits_per_min"][0], 240.0);
+            assert_eq!(series["cache_disk_cut_backs_per_min"][0], 300.0);
+            assert_eq!(series["busy_for"][0], (step / 1000 - 1) as f64 / 2.0);
+            assert_eq!(series["busy_for_max"][0], (step / 1000 - 1) as f64);
+            assert_eq!(series["kv_waiting_max"][0], (step / 1000 - 1) as f64);
+            assert_eq!(series["totals_in_range"]["cache_hits"], 270.0);
+        }
+    }
     #[test]
     fn rollup_keeps_min_mean_max_and_worst_status() {
         let mut f = Frame::default();

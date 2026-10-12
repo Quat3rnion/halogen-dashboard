@@ -10,6 +10,12 @@ export interface Totals {
   draft_tokens: number;
   draft_accepted: number;
   structured_requests: number;
+  cache_hits: number;
+  cache_misses: number;
+  cache_evicted: number;
+  cache_rewrites: number;
+  cache_disk_hits: number;
+  cache_disk_cut_backs: number;
 }
 
 export interface Sample {
@@ -28,6 +34,24 @@ export interface Sample {
   mean_service_time: number | null;
   prompt_cache_hit_rate: number | null;
   draft_acceptance: number | null;
+  // Halogen 0.17.5+. Null when the series is missing (an old Halogen) or undefined.
+  /** Run time of the oldest running request, s. */
+  busy_for: number | null;
+  kv_waiting: number | null;
+  cache_entries: number | null;
+  cache_bytes: number | null;
+  /** Age of the engine's last cache report, s. Cache values can lag by this much. */
+  cache_stats_age: number | null;
+  /** 0 or 1. */
+  cache_disk_enabled: number | null;
+  cache_disk_bytes: number | null;
+  cache_disk_budget: number | null;
+  /** Share of prompt-cache lookups that found an entry. Not the Prompt-cache hit rate (token share). */
+  cache_lookup_hit_rate: number | null;
+  cache_evictions_per_min: number | null;
+  cache_rewrites_per_min: number | null;
+  cache_disk_hits_per_min: number | null;
+  cache_disk_cut_backs_per_min: number | null;
   totals: Totals | null;
 }
 
@@ -111,9 +135,21 @@ export const SERIES_FIELDS = [
   'mean_service_time',
   'prompt_cache_hit_rate',
   'draft_acceptance',
+  'busy_for',
+  'kv_waiting',
+  'cache_entries',
+  'cache_bytes',
+  'cache_lookup_hit_rate',
+  'cache_evictions_per_min',
+  'cache_rewrites_per_min',
+  'cache_disk_hits_per_min',
+  'cache_disk_cut_backs_per_min',
+  'cache_disk_bytes',
   'busy_slots_max',
   'queued_max',
   'kv_use_max',
+  'busy_for_max',
+  'kv_waiting_max',
 ] as const;
 
 export type SeriesField = (typeof SERIES_FIELDS)[number];

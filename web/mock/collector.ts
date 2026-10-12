@@ -10,6 +10,7 @@
 //   GET /__mock/drop      closes all streams and refuses new ones for 6 s ("Reconnecting").
 //   GET /__mock/outage    starts a 20 s Outage now, followed by a Restart.
 //   GET /__mock/degraded  starts a 30 s Degraded period now (NPU error).
+//   GET /__mock/legacy    toggles an old Halogen (0.17.3): all cache metrics of 0.17.5+ are null.
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
@@ -30,6 +31,12 @@ interface Totals {
   draft_tokens: number;
   draft_accepted: number;
   structured_requests: number;
+  cache_hits: number;
+  cache_misses: number;
+  cache_evicted: number;
+  cache_rewrites: number;
+  cache_disk_hits: number;
+  cache_disk_cut_backs: number;
 }
 type Next = (err?: unknown) => void;
 
@@ -187,6 +194,48 @@ interface Values {
   mean_service_time: number | null;
   prompt_cache_hit_rate: number | null;
   draft_acceptance: number | null;
+  busy_for: number;
+  kv_waiting: number;
+  cache_entries: number;
+  cache_bytes: number;
+  cache_stats_age: number;
+  cache_disk_enabled: number;
+  cache_disk_bytes: number;
+  cache_disk_budget: number;
+  cache_lookup_hit_rate: number | null;
+  cache_evictions_per_min: number;
+  cache_rewrites_per_min: number;
+  cache_disk_hits_per_min: number;
+  cache_disk_cut_backs_per_min: number;
+}
+
+/** Halogen 0.17.5+ fields of a Sample. An old Halogen sends null for all of them. */
+const NEW_FIELDS = [
+  'busy_for',
+  'kv_waiting',
+  'cache_entries',
+  'cache_bytes',
+  'cache_stats_age',
+  'cache_disk_enabled',
+  'cache_disk_bytes',
+  'cache_disk_budget',
+  'cache_lookup_hit_rate',
+  'cache_evictions_per_min',
+  'cache_rewrites_per_min',
+  'cache_disk_hits_per_min',
+  'cache_disk_cut_backs_per_min',
+] as const;
+const DISK_BUDGET = 8 * 1024 ** 3;
+
+/** Toggled by /__mock/legacy. */
+let legacy = false;
+
+function cacheEntries(t: number): number {
+  return Math.min(24, 3 + Math.floor(smooth(t, 4 * MIN, 31) * 22));
+}
+
+function cacheBytes(t: number, entries: number): number {
+  return Math.round(entries * 4.6 * 1024 * 1024 * (0.9 + smooth(t, 30 * SEC, 32) * 0.15));
 }
 
 function load(t: number): number {
@@ -214,6 +263,10 @@ function values(t: number): Values {
   const kvUse = Math.min(0.985, 0.06 + busy * 0.17 + queued * 0.035 + n3 * 0.12);
   const kvUsed = Math.round(kvUse * KV_POOL);
   const rpm = busy * 1.4 + n2 * 1.8 + (queued > 0 ? 0.6 : 0);
+  const entries = cacheEntries(t);
+  const n4 = smooth(t, 25 * SEC, 14);
+  // The engine reports cache numbers about every 5 s. Now and then the report is late, so the Stats age goes above 30 s.
+  const late = smooth(t, 3 * MIN, 41) > 0.82 ? 34 : 0;
   return {
     busy_slots: busy,
     queued,
@@ -228,6 +281,19 @@ function values(t: number): Values {
     mean_service_time: rpm > 0.2 ? 18 + busy * 7 + n3 * 22 : null,
     prompt_cache_hit_rate: prefill === null ? null : 0.32 + n3 * 0.42,
     draft_acceptance: gen === null ? null : 0.62 + n2 * 0.2,
+    busy_for: busy > 0 ? 1.5 + busy * 6 + n3 * 38 + queued * 2 : 0,
+    kv_waiting: kvUse > 0.9 ? queued : 0,
+    cache_entries: entries,
+    cache_bytes: cacheBytes(t, entries),
+    cache_stats_age: ((t / SEC) % 5) + late,
+    cache_disk_enabled: 1,
+    cache_disk_bytes: Math.round(DISK_BUDGET * (0.35 + smooth(t, 20 * MIN, 42) * 0.55)),
+    cache_disk_budget: DISK_BUDGET,
+    cache_lookup_hit_rate: prefill === null ? null : 0.48 + n4 * 0.4,
+    cache_evictions_per_min: entries >= 20 ? 0.4 + n1 * 1.6 + queued * 0.2 : n1 * 0.3,
+    cache_rewrites_per_min: rpm * (0.15 + n4 * 0.35),
+    cache_disk_hits_per_min: rpm * (0.05 + n3 * 0.2),
+    cache_disk_cut_backs_per_min: smooth(t, 20 * MIN, 42) > 0.8 ? 0.2 + n2 * 0.6 : 0,
   };
 }
 
@@ -248,6 +314,12 @@ function totals(t: number): Totals {
     draft_tokens: draft,
     draft_accepted: Math.floor(draft * 0.71),
     structured_requests: Math.floor(requests * 0.08),
+    cache_hits: legacy ? 0 : Math.floor(s * 0.021),
+    cache_misses: legacy ? 0 : Math.floor(s * 0.013),
+    cache_evicted: legacy ? 0 : Math.floor(s * 0.004),
+    cache_rewrites: legacy ? 0 : Math.floor(s * 0.009 + w * 0.002),
+    cache_disk_hits: legacy ? 0 : Math.floor(s * 0.003),
+    cache_disk_cut_backs: legacy ? 0 : Math.floor(s * 0.00004),
   };
 }
 
@@ -276,10 +348,12 @@ function sample(t: number) {
       mean_service_time: null,
       prompt_cache_hit_rate: null,
       draft_acceptance: null,
+      ...Object.fromEntries(NEW_FIELDS.map((f) => [f, null])),
       totals: null,
     };
   }
-  return { t, status, ...values(t), totals: totals(t) };
+  const old: Record<string, null> = legacy ? Object.fromEntries(NEW_FIELDS.map((f) => [f, null])) : {};
+  return { t, status, ...values(t), ...old, totals: totals(t) };
 }
 
 function info(now: number) {
@@ -295,8 +369,8 @@ function info(now: number) {
   return {
     halogen_url: 'http://frame:8731',
     model: 'halogen-v2-abliterated',
-    version_api: '0.17.3',
-    version_engine: '0.17.3',
+    version_api: legacy ? '0.17.3' : '0.18.1',
+    version_engine: legacy ? '0.17.3' : '0.18.1',
     slots: SLOTS,
     slot_ctx: 262144,
     kv_pool: KV_POOL,
@@ -322,14 +396,14 @@ function cache(now: number) {
   const t = Math.floor(now / (5 * SEC)) * 5 * SEC;
   const v = values(t);
   const s = (t - ORIGIN) / SEC;
-  const entries = Math.min(24, 3 + Math.floor(smooth(t, 4 * MIN, 31) * 22));
+  const entries = cacheEntries(t);
   const hits = Math.floor(s * 0.021);
   const misses = Math.floor(s * 0.013);
   return {
     t,
     entries,
     max_entries: 24,
-    bytes: Math.round(entries * 4.6 * 1024 * 1024 * (0.9 + smooth(t, 30 * SEC, 32) * 0.15)),
+    bytes: cacheBytes(t, entries),
     hits,
     misses,
     evicted: Math.floor(s * 0.004),
@@ -363,7 +437,18 @@ const FIELDS = [
   'mean_service_time',
   'prompt_cache_hit_rate',
   'draft_acceptance',
+  'busy_for',
+  'kv_waiting',
+  'cache_entries',
+  'cache_bytes',
+  'cache_lookup_hit_rate',
+  'cache_evictions_per_min',
+  'cache_rewrites_per_min',
+  'cache_disk_hits_per_min',
+  'cache_disk_cut_backs_per_min',
+  'cache_disk_bytes',
 ] as const;
+const NEW_COLS = new Set<string>([...NEW_FIELDS, 'busy_for_max', 'kv_waiting_max']);
 const RANK: Record<Status, number> = { up: 0, degraded: 1, down: 2 };
 
 function series(from: number, to: number, stepIn: number | null) {
@@ -379,6 +464,8 @@ function series(from: number, to: number, stepIn: number | null) {
   cols.busy_slots_max = [];
   cols.queued_max = [];
   cols.kv_use_max = [];
+  cols.busy_for_max = [];
+  cols.kv_waiting_max = [];
   const ts: number[] = [];
   const status: (Status | null)[] = [];
   const subN = raw ? 1 : Math.min(40, Math.max(4, Math.round(step / (3 * SEC))));
@@ -411,7 +498,10 @@ function series(from: number, to: number, stepIn: number | null) {
     cols.busy_slots_max!.push(acc.busy_slots ? acc.busy_slots.max : null);
     cols.queued_max!.push(acc.queued ? acc.queued.max : null);
     cols.kv_use_max!.push(acc.kv_use ? acc.kv_use.max : null);
+    cols.busy_for_max!.push(acc.busy_for ? acc.busy_for.max : null);
+    cols.kv_waiting_max!.push(acc.kv_waiting ? acc.kv_waiting.max : null);
   }
+  if (legacy) for (const f of Object.keys(cols)) if (NEW_COLS.has(f)) cols[f] = cols[f]!.map(() => null);
   return {
     from,
     to,
@@ -499,7 +589,7 @@ function stream(req: IncomingMessage, res: ServerResponse): void {
 }
 
 export function createMockHandler() {
-  console.log('[mock] Collector mock active: /api/snapshot /api/series /api/events /api/stream /metrics /healthz /__mock/drop /__mock/outage /__mock/degraded');
+  console.log('[mock] Collector mock active: /api/snapshot /api/series /api/events /api/stream /metrics /healthz /__mock/drop /__mock/outage /__mock/degraded /__mock/legacy');
   return (req: IncomingMessage, res: ServerResponse, next: Next): void => {
     const url = new URL(req.url ?? '/', 'http://mock');
     const p = url.pathname;
@@ -539,6 +629,11 @@ export function createMockHandler() {
       const from = Math.ceil(now / SEC) * SEC;
       DEGRADED.push({ from, to: from + 30 * SEC, detail: 'NPU error: rknn_run timed out' });
       res.end('degraded for 30 s\n');
+      return;
+    }
+    if (p === '/__mock/legacy') {
+      legacy = !legacy;
+      res.end(legacy ? 'old Halogen 0.17.3: new cache metrics are null\n' : 'Halogen 0.18.1: new cache metrics on\n');
       return;
     }
     if (p === '/__mock/drop') {

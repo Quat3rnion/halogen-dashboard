@@ -1,0 +1,72 @@
+# TYPE halogen:requests_total counter
+halogen:requests_total 3205
+# TYPE llamacpp:prompt_tokens_total counter
+llamacpp:prompt_tokens_total 22902339
+# TYPE llamacpp:tokens_predicted_total counter
+llamacpp:tokens_predicted_total 2733369
+# TYPE halogen:prompt_tokens_cached_total counter
+halogen:prompt_tokens_cached_total 291698441
+# TYPE halogen:draft_tokens_total counter
+halogen:draft_tokens_total 923068
+# TYPE halogen:draft_tokens_accepted_total counter
+halogen:draft_tokens_accepted_total 746528
+# TYPE halogen:structured_requests_total counter
+halogen:structured_requests_total 0
+# TYPE llamacpp:prompt_seconds_total counter
+llamacpp:prompt_seconds_total 14614.5224
+# TYPE llamacpp:tokens_predicted_seconds_total counter
+llamacpp:tokens_predicted_seconds_total 123247.5123
+# TYPE halogen:draft_list_tokens_total counter
+halogen:draft_list_tokens_total 2535840
+# TYPE halogen:draft_list_misses_total counter
+halogen:draft_list_misses_total 66221
+# TYPE halogen:build_info{version="0.18.1",engine_version="0.18.1",model="halogen-v2-abliterated"} gauge
+halogen:build_info{version="0.18.1",engine_version="0.18.1",model="halogen-v2-abliterated"} 1
+# TYPE halogen:busy_for_seconds gauge
+halogen:busy_for_seconds 0
+# TYPE halogen:cache_bytes gauge
+halogen:cache_bytes 1047506868
+# TYPE halogen:cache_disk_budget_bytes gauge
+halogen:cache_disk_budget_bytes 0
+# TYPE halogen:cache_disk_bytes gauge
+halogen:cache_disk_bytes 0
+# TYPE halogen:cache_disk_cut_back_total gauge
+halogen:cache_disk_cut_back_total 0
+# TYPE halogen:cache_disk_enabled gauge
+halogen:cache_disk_enabled 0
+# TYPE halogen:cache_disk_hits_total gauge
+halogen:cache_disk_hits_total 0
+# TYPE halogen:cache_entries gauge
+halogen:cache_entries 9
+# TYPE halogen:cache_evicted_total gauge
+halogen:cache_evicted_total 0
+# TYPE halogen:cache_hits_total gauge
+halogen:cache_hits_total 0
+# TYPE halogen:cache_last_message_rewrites_total gauge
+halogen:cache_last_message_rewrites_total 0
+# TYPE halogen:cache_misses_total gauge
+halogen:cache_misses_total 7
+# TYPE halogen:cache_prompt_tokens_saved_total gauge
+halogen:cache_prompt_tokens_saved_total 0
+# TYPE halogen:cache_stats_age_seconds gauge
+halogen:cache_stats_age_seconds 1.999
+# TYPE halogen:engine_up gauge
+halogen:engine_up 1
+# TYPE halogen:kv_pool_positions gauge
+halogen:kv_pool_positions 1048576
+# TYPE halogen:kv_pool_reserved_tokens gauge
+halogen:kv_pool_reserved_tokens 0
+# TYPE halogen:kv_pool_waiting_for_room gauge
+halogen:kv_pool_waiting_for_room 0
+# TYPE llamacpp:kv_cache_tokens gauge
+llamacpp:kv_cache_tokens 3072
+# TYPE llamacpp:kv_cache_usage_ratio gauge
+llamacpp:kv_cache_usage_ratio 0.0029296875
+# TYPE llamacpp:predicted_tokens_seconds gauge
+llamacpp:predicted_tokens_seconds 0
+# TYPE llamacpp:prompt_tokens_seconds gauge
+llamacpp:prompt_tokens_seconds 0
+# TYPE llamacpp:requests_deferred gauge
+llamacpp:requests_deferred 0
+# TYPE llamacpp:requests_processing gauge
+llamacpp:requests_processing 0

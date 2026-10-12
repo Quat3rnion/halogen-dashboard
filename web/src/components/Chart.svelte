@@ -61,6 +61,18 @@
     return m * p;
   }
 
+  /** Round up to 1, 2, 2.5, 5 or 10 times a power of 1024. */
+  function binaryCeil(v: number): number {
+    if (v <= 0) return 1024;
+    const p = Math.pow(1024, Math.max(0, Math.floor(Math.log(v) / Math.log(1024))));
+    return niceCeil(v / p) * p;
+  }
+
+  /** Tick steps for byte axes: 1/4, 1/2, 1, 2, 5, 10 ... 500 of each binary unit. */
+  const BINARY_INCRS = [1, 1024, 1024 ** 2, 1024 ** 3, 1024 ** 4].flatMap((p) =>
+    [0.25, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500].map((m) => m * p),
+  );
+
   function build(): void {
     u?.destroy();
     u = null;
@@ -110,7 +122,8 @@
         font,
         size: 26,
         gap: 4,
-        space: 52,
+        // A wide chart needs more space per time label, or it shows a label every 15 s.
+        space: def.wide ? 110 : 52,
         grid: { stroke: grid, width: 1 },
         ticks: { stroke: line, width: 1, size: 4 },
         values: (_u, splits, _ax, _space, incr) => splits.map((v) => xTick(v, incr)),
@@ -122,6 +135,7 @@
           if (a.range) return a.range;
           let hi = Math.max(a.minMax ?? 0, Number.isFinite(max) ? max : 0);
           if (a.unit === '%') hi = Math.ceil(hi * 1.04 * 10) / 10;
+          else if (a.binary) hi = binaryCeil(hi * 1.08);
           else hi = a.integer ? Math.max(1, Math.ceil(hi * 1.1)) : niceCeil(hi * 1.08);
           return [0, hi];
         },
@@ -136,7 +150,7 @@
         grid: a.side === 'left' ? { stroke: grid, width: 1 } : { show: false },
         ticks: { show: false },
         values: (_u, splits) => splits.map((v) => a.tick(v)),
-        incrs: a.integer ? [1, 2, 5, 10, 20, 50, 100] : undefined,
+        incrs: a.integer ? [1, 2, 5, 10, 20, 50, 100] : a.binary ? BINARY_INCRS : undefined,
       });
     }
 
@@ -278,7 +292,7 @@
   const longRange = $derived(dash.rangeDef.ms > 24 * 3600_000);
 </script>
 
-<figure class="chart card" aria-labelledby="title-{def.id}">
+<figure class="chart card" class:wide={def.wide} aria-labelledby="title-{def.id}">
   <figcaption class="head">
     <h2 id="title-{def.id}">{def.title}</h2>
     <span class="when num">
@@ -317,6 +331,9 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
+  }
+  .wide {
+    grid-column: 1 / -1;
   }
   .head {
     display: flex;
@@ -374,6 +391,12 @@
     color: var(--text);
     font-weight: 500;
     min-width: 6ch;
+  }
+  @media (max-width: 720px) {
+    /* One chart per row: let a long title wrap instead of cutting it. */
+    h2 {
+      white-space: normal;
+    }
   }
   .plot {
     height: var(--plot-h, 210px);

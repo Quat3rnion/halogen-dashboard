@@ -1,4 +1,4 @@
-//! Deterministic, completion-accounted Halogen 0.17.3 simulator.
+//! Deterministic, completion-accounted Halogen 0.18.1 simulator.
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 
 use axum::{
@@ -14,10 +14,33 @@ use rand_distr::{Distribution, LogNormal, Poisson};
 use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
-const METRICS: &str = include_str!("../../../fixtures/halogen-0.17.3/metrics.txt");
+const METRICS: &str = include_str!("../../../fixtures/halogen-0.18.1/metrics.txt");
 const POOL: u64 = 1_048_576;
+// Stable internal accounting order, independent of the fixture's line order.
+const NAMES: [&str; 19] = [
+    "llamacpp:prompt_tokens_total",
+    "llamacpp:prompt_seconds_total",
+    "llamacpp:tokens_predicted_total",
+    "llamacpp:tokens_predicted_seconds_total",
+    "llamacpp:prompt_tokens_seconds",
+    "llamacpp:predicted_tokens_seconds",
+    "llamacpp:requests_processing",
+    "llamacpp:requests_deferred",
+    "llamacpp:kv_cache_tokens",
+    "llamacpp:kv_cache_usage_ratio",
+    "halogen:requests_total",
+    "halogen:prompt_tokens_cached_total",
+    "halogen:draft_tokens_total",
+    "halogen:draft_tokens_accepted_total",
+    "halogen:structured_requests_total",
+    "halogen:draft_list_tokens_total",
+    "halogen:draft_list_misses_total",
+    "halogen:kv_pool_positions",
+    "halogen:kv_pool_reserved_tokens",
+];
 
 struct Request {
+    started: f64,
     prompt: u64,
     cached: u64,
     output: u64,
@@ -39,10 +62,9 @@ pub struct Simulator {
     degrade_until: f64,
     engine_fault: bool,
     burst_until: f64,
-    busy_since: f64,
     active: Vec<Request>,
     queue: VecDeque<Request>,
-    // Fixture order: the first four and positions 10..17 are counters.
+    // NAMES order: the first four and positions 10..17 are counters.
     totals: [f64; 19],
     window: [f64; 4],
     hits: u64,
@@ -69,7 +91,6 @@ impl Simulator {
             degrade_until: 0.0,
             engine_fault: false,
             burst_until: 0.0,
-            busy_since: 0.0,
             active: Vec::with_capacity(4),
             queue: VecDeque::new(),
             totals: [0.0; 19],
@@ -78,15 +99,15 @@ impl Simulator {
             misses: 0,
             passes: 0,
             health_template: serde_json::from_str(include_str!(
-                "../../../fixtures/halogen-0.17.3/health.json"
+                "../../../fixtures/halogen-0.18.1/health.json"
             ))
             .unwrap(),
             cache_template: serde_json::from_str(include_str!(
-                "../../../fixtures/halogen-0.17.3/cache.json"
+                "../../../fixtures/halogen-0.18.1/cache.json"
             ))
             .unwrap(),
             models_template: serde_json::from_str(include_str!(
-                "../../../fixtures/halogen-0.17.3/v1_models.json"
+                "../../../fixtures/halogen-0.18.1/v1_models.json"
             ))
             .unwrap(),
             prompt_distribution: LogNormal::new(8.8, 1.25).unwrap(),
@@ -106,6 +127,7 @@ impl Simulator {
         };
         let prefill_seconds = (prompt - cached) as f64 / self.rng.random_range(1500.0..3500.0);
         Request {
+            started: self.time,
             prompt,
             cached,
             output: self
@@ -154,15 +176,12 @@ impl Simulator {
                     self.queue.push_back(request);
                 }
             }
-            let was_idle = self.active.is_empty();
             while self.active.len() < 4 {
-                let Some(request) = self.queue.pop_front() else {
+                let Some(mut request) = self.queue.pop_front() else {
                     break;
                 };
+                request.started = self.time;
                 self.active.push(request);
-            }
-            if was_idle && !self.active.is_empty() {
-                self.busy_since = self.time;
             }
             let concurrency = self.active.len() as f64;
             let slowdown = if self.time < self.degrade_until {
@@ -256,20 +275,52 @@ impl Simulator {
 
     /// Direct model values for history seeding; consumes the same gauge window as HTTP.
     pub fn metric_values(&mut self) -> std::collections::BTreeMap<String, f64> {
-        static NAMES: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
-        let names = NAMES.get_or_init(|| {
-            METRICS
-                .lines()
-                .filter(|l| !l.starts_with('#'))
-                .filter_map(|l| l.split_once(' ').map(|(n, _)| n.to_owned()))
-                .collect()
-        });
-        names.iter().cloned().zip(self.values()).collect()
+        let mut values: std::collections::BTreeMap<String, f64> = NAMES
+            .into_iter()
+            .map(str::to_owned)
+            .zip(self.values())
+            .collect();
+        for (name, value) in [
+            ("halogen:busy_for_seconds", self.busy_for()),
+            (
+                "halogen:kv_pool_waiting_for_room",
+                if self.reserved() > POOL {
+                    self.queue.len() as f64
+                } else {
+                    0.0
+                },
+            ),
+            ("halogen:cache_entries", self.entries() as f64),
+            ("halogen:cache_bytes", (self.entries() * 4_000_000) as f64),
+            ("halogen:cache_stats_age_seconds", self.time.fract()),
+            ("halogen:cache_hits_total", self.hits as f64),
+            ("halogen:cache_misses_total", self.misses as f64),
+            (
+                "halogen:cache_evicted_total",
+                (self.totals[10] - 24.0).max(0.0),
+            ),
+            (
+                "halogen:cache_last_message_rewrites_total",
+                (self.hits / 5) as f64,
+            ),
+            ("halogen:cache_prompt_tokens_saved_total", self.totals[11]),
+            ("halogen:cache_disk_enabled", 0.0),
+            ("halogen:cache_disk_bytes", 0.0),
+            ("halogen:cache_disk_budget_bytes", 0.0),
+            ("halogen:cache_disk_hits_total", 0.0),
+            ("halogen:cache_disk_cut_back_total", 0.0),
+            (
+                "halogen:engine_up",
+                f64::from(!(self.is_degraded() && self.engine_fault)),
+            ),
+        ] {
+            values.insert(name.into(), value);
+        }
+        values
     }
 
     pub fn metrics(&mut self) -> String {
-        let values = self.values();
-        let mut index = 0;
+        let values = self.metric_values();
         let mut out = String::with_capacity(METRICS.len() + 200);
         for line in METRICS.lines() {
             if line.starts_with('#') {
@@ -277,16 +328,34 @@ impl Simulator {
             } else if let Some((name, _)) = line.split_once(' ') {
                 out.push_str(name);
                 out.push(' ');
-                if matches!(index, 1 | 3 | 4 | 5 | 9) {
-                    out.push_str(&six_significant(values[index]));
+                if name.starts_with("halogen:build_info{") {
+                    out.push('1');
                 } else {
-                    out.push_str(&(values[index] as u64).to_string());
+                    let value = values[name];
+                    if matches!(
+                        name,
+                        "llamacpp:prompt_seconds_total"
+                            | "llamacpp:tokens_predicted_seconds_total"
+                            | "llamacpp:prompt_tokens_seconds"
+                            | "llamacpp:predicted_tokens_seconds"
+                            | "llamacpp:kv_cache_usage_ratio"
+                    ) {
+                        out.push_str(&six_significant(value));
+                    } else {
+                        out.push_str(&value.to_string());
+                    }
                 }
-                index += 1;
             }
             out.push('\n');
         }
         out
+    }
+
+    fn busy_for(&self) -> f64 {
+        self.active
+            .iter()
+            .map(|request| self.time - request.started)
+            .fold(0.0, f64::max)
     }
 
     pub fn health(&self) -> Value {
@@ -305,11 +374,7 @@ impl Simulator {
         });
         h["busy"] = json!(!self.active.is_empty());
         h["in_flight"] = json!(self.active.len());
-        h["busy_for_s"] = json!(if self.active.is_empty() {
-            0.0
-        } else {
-            self.time - self.busy_since
-        });
+        h["busy_for_s"] = json!(self.busy_for());
         h["queued"] = json!(self.queue.len());
         h["npu"]["passes"] = json!(self.passes);
         h["npu"]["queued"] = json!(self.queue.len() / 4);
@@ -503,6 +568,26 @@ pub async fn serve(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cache_metrics_and_oldest_request_age_follow_load() {
+        let mut sim = Simulator::new(42, 1.0);
+        sim.control("burst");
+        sim.step(60.0);
+        let output = sim.metrics();
+        assert!(output.contains("halogen:build_info{version=\"0.18.1\""));
+        let metrics = crate::metrics::parse(&output);
+        assert!(metrics["halogen:busy_for_seconds"] > 0.0);
+        assert_eq!(metrics["halogen:cache_hits_total"], sim.hits as f64);
+        assert_eq!(metrics["halogen:cache_misses_total"], sim.misses as f64);
+        sim.step(3600.0);
+        let metrics = sim.metric_values();
+        assert!(metrics["halogen:cache_hits_total"] > 0.0);
+        assert!(metrics["halogen:cache_misses_total"] > 0.0);
+        assert!(metrics["halogen:cache_evicted_total"] > 0.0);
+        assert!(metrics["halogen:cache_last_message_rewrites_total"] > 0.0);
+        assert_eq!(metrics["halogen:cache_disk_enabled"], 0.0);
+        assert_eq!(metrics["halogen:cache_disk_hits_total"], 0.0);
+    }
     fn values(text: &str) -> Vec<(&str, f64)> {
         text.lines()
             .filter(|l| !l.starts_with('#'))
@@ -541,12 +626,12 @@ mod tests {
         assert_eq!(sim.totals[10], 0.0);
         sim.step(3600.0);
         let output = sim.metrics();
-        let first = values(&output);
-        assert!(first[4].1 > 0.0 && first[5].1 > 0.0);
+        let first = crate::metrics::parse(&output);
+        assert!(first[NAMES[4]] > 0.0 && first[NAMES[5]] > 0.0);
         let reset = sim.metrics();
-        let reset = values(&reset);
-        assert_eq!((reset[4].1, reset[5].1), (0.0, 0.0));
-        assert_eq!(reset[0], first[0]);
+        let reset = crate::metrics::parse(&reset);
+        assert_eq!((reset[NAMES[4]], reset[NAMES[5]]), (0.0, 0.0));
+        assert_eq!(reset[NAMES[0]], first[NAMES[0]]);
     }
 
     #[test]
@@ -625,9 +710,9 @@ mod tests {
         let direct = sim.metric_values();
         assert!(direct["llamacpp:predicted_tokens_seconds"] > 0.0);
         let text = sim.metrics();
-        let http = values(&text);
-        assert_eq!(http[5].1, 0.0);
-        assert_eq!(http[10].1, direct["halogen:requests_total"]);
+        let http = crate::metrics::parse(&text);
+        assert_eq!(http[NAMES[5]], 0.0);
+        assert_eq!(http[NAMES[10]], direct["halogen:requests_total"]);
     }
 
     #[test]

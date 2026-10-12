@@ -19,10 +19,21 @@ pub const COUNTERS: [&str; 11] = [
     "halogen:draft_list_misses_total",
 ];
 
+pub const CACHE_COUNTERS: [&str; 6] = [
+    "halogen:cache_hits_total",
+    "halogen:cache_misses_total",
+    "halogen:cache_evicted_total",
+    "halogen:cache_last_message_rewrites_total",
+    "halogen:cache_disk_hits_total",
+    "halogen:cache_disk_cut_back_total",
+];
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Frame {
     pub sample: Sample,
     pub counters: [f64; 11],
+    #[serde(default)]
+    pub cache_counters: [Option<f64>; 6],
     pub kv_pool: Option<f64>,
     // Rates never bridge an Outage, even when the endpoint counters survive.
     pub segment: i64,
@@ -37,7 +48,17 @@ pub fn totals(c: &[f64; 11]) -> Totals {
         draft_tokens: c[4],
         draft_accepted: c[5],
         structured_requests: c[6],
+        ..Default::default()
     }
+}
+
+pub fn cache_totals(totals: &mut Totals, c: &[f64; 6]) {
+    totals.cache_hits = c[0];
+    totals.cache_misses = c[1];
+    totals.cache_evicted = c[2];
+    totals.cache_rewrites = c[3];
+    totals.cache_disk_hits = c[4];
+    totals.cache_disk_cut_backs = c[5];
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -45,6 +66,10 @@ pub struct CounterTracker {
     previous: BTreeMap<String, f64>,
     offsets: [f64; 11],
     pub adjusted: [f64; 11],
+    #[serde(default)]
+    cache_offsets: [f64; 6],
+    #[serde(default)]
+    pub cache_adjusted: [f64; 6],
     exact_seconds: [f64; 2],
     pub restarts: u64,
     history: VecDeque<Frame>,
@@ -90,7 +115,23 @@ impl CounterTracker {
         if restart {
             self.restarts += 1;
             self.offsets = self.adjusted;
+            self.cache_offsets = self.cache_adjusted;
             self.previous.clear();
+        }
+        let mut cache_counters = [None; 6];
+        for (i, name) in CACHE_COUNTERS.iter().enumerate() {
+            if let Some(value) = m.get(*name) {
+                if self
+                    .previous
+                    .get(*name)
+                    .is_some_and(|previous| value < previous)
+                {
+                    self.cache_offsets[i] = self.cache_adjusted[i];
+                }
+                self.cache_adjusted[i] = self.cache_offsets[i] + value;
+                cache_counters[i] = Some(self.cache_adjusted[i]);
+                self.previous.insert((*name).into(), *value);
+            }
         }
         let before = self.adjusted;
         for (i, name) in COUNTERS.iter().enumerate() {
@@ -129,6 +170,8 @@ impl CounterTracker {
         counters[8] = self.exact_seconds[1];
         let pool = m.get("halogen:kv_pool_positions").copied();
         let kv_used = m.get("llamacpp:kv_cache_tokens").copied();
+        let mut totals = totals(&counters);
+        cache_totals(&mut totals, &self.cache_adjusted);
         let mut frame = Frame {
             sample: Sample {
                 t,
@@ -138,10 +181,19 @@ impl CounterTracker {
                 kv_used,
                 kv_reserved: m.get("halogen:kv_pool_reserved_tokens").copied(),
                 kv_use: m.get("llamacpp:kv_cache_usage_ratio").copied(),
-                totals: Some(totals(&counters)),
+                totals: Some(totals),
+                busy_for: m.get("halogen:busy_for_seconds").copied(),
+                kv_waiting: m.get("halogen:kv_pool_waiting_for_room").copied(),
+                cache_entries: m.get("halogen:cache_entries").copied(),
+                cache_bytes: m.get("halogen:cache_bytes").copied(),
+                cache_stats_age: m.get("halogen:cache_stats_age_seconds").copied(),
+                cache_disk_enabled: m.get("halogen:cache_disk_enabled").copied(),
+                cache_disk_bytes: m.get("halogen:cache_disk_bytes").copied(),
+                cache_disk_budget: m.get("halogen:cache_disk_budget_bytes").copied(),
                 ..Default::default()
             },
             counters,
+            cache_counters,
             kv_pool: pool,
             segment: self.segment,
         };
@@ -184,11 +236,108 @@ pub fn apply_rates(sample: &mut Sample, first: &Frame, last: &Frame, _window_ms:
     sample.mean_service_time = ratio(d[7] + d[8], d[0]);
     sample.prompt_cache_hit_rate = ratio(d[3], d[3] + d[1]);
     sample.draft_acceptance = ratio(d[5], d[4]);
+    let d: [Option<f64>; 6] = std::array::from_fn(|i| {
+        first.cache_counters[i]
+            .zip(last.cache_counters[i])
+            .map(|(a, b)| (b - a).max(0.0))
+    });
+    sample.cache_lookup_hit_rate = d[0]
+        .zip(d[1])
+        .and_then(|(hits, misses)| ratio(hits, hits + misses));
+    sample.cache_evictions_per_min = d[2].map(|v| v / wall * 60.0);
+    sample.cache_rewrites_per_min = d[3].map(|v| v / wall * 60.0);
+    sample.cache_disk_hits_per_min = d[4].map(|v| v / wall * 60.0);
+    sample.cache_disk_cut_backs_per_min = d[5].map(|v| v / wall * 60.0);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cache_resets_are_adjusted_without_restart_events_and_survive_checkpoints() {
+        let mut tracker = CounterTracker::default();
+        let text = |requests, cache| {
+            format!(
+                "halogen:requests_total {requests}\n{}",
+                CACHE_COUNTERS
+                    .iter()
+                    .map(|name| format!("{name} {cache}\n"))
+                    .collect::<String>()
+            )
+        };
+        tracker.sample(0, Some(&text(100, 100)), Status::Up);
+        let (f, restart) = tracker.sample(10_000, Some(&text(101, 2)), Status::Up);
+        assert!(!restart);
+        assert_eq!(f.sample.totals.unwrap().cache_hits, 102.0);
+        assert_eq!(f.sample.cache_evictions_per_min, Some(12.0));
+        let mut tracker: CounterTracker =
+            serde_json::from_str(&serde_json::to_string(&tracker).unwrap()).unwrap();
+        let (f, restart) = tracker.sample(20_000, Some(&text(1, 1)), Status::Up);
+        assert!(restart);
+        assert_eq!(tracker.restarts, 1);
+        assert_eq!(f.sample.totals.unwrap().cache_disk_cut_backs, 103.0);
+        tracker.sample(30_000, Some("halogen:requests_total 2"), Status::Up);
+        let (f, restart) = tracker.sample(40_000, Some(&text(3, 2)), Status::Up);
+        assert!(!restart);
+        assert_eq!(f.sample.totals.unwrap().cache_hits, 104.0);
+        let sparse = text(4, 3).replace(
+            "halogen:cache_evicted_total 3",
+            "halogen:cache_evicted_total 0",
+        );
+        let (f, restart) = tracker.sample(50_000, Some(&sparse), Status::Up);
+        assert!(!restart);
+        assert_eq!(f.sample.totals.unwrap().cache_hits, 105.0);
+        assert_eq!(f.sample.totals.unwrap().cache_evicted, 104.0);
+        assert!(f.sample.cache_evictions_per_min.unwrap() >= 0.0);
+    }
+    #[test]
+    fn cache_metrics_use_window_deltas_and_old_versions_remain_null() {
+        let mut tracker = CounterTracker::default();
+        tracker.sample(0, Some("halogen:cache_hits_total 10\nhalogen:cache_misses_total 10\nhalogen:cache_evicted_total 1"), Status::Up);
+        let (frame, _) = tracker.sample(30_000, Some("halogen:cache_hits_total 16\nhalogen:cache_misses_total 12\nhalogen:cache_evicted_total 3\nhalogen:busy_for_seconds 9"), Status::Up);
+        let value = serde_json::to_value(frame.sample).unwrap();
+        assert_eq!(value["cache_lookup_hit_rate"], 0.75);
+        assert_eq!(value["cache_evictions_per_min"], 4.0);
+        assert_eq!(value["busy_for"], 9.0);
+        let fixture = include_str!("../../../fixtures/halogen-0.17.3/metrics.txt");
+        let mut old = CounterTracker::default();
+        old.sample(0, Some(fixture), Status::Up);
+        let (frame, _) = old.sample(30_000, Some(fixture), Status::Up);
+        let value = serde_json::to_value(frame.sample).unwrap();
+        assert!(
+            value
+                .as_object()
+                .unwrap()
+                .contains_key("cache_evictions_per_min")
+        );
+        assert!(value["cache_evictions_per_min"].is_null());
+        for field in [
+            "busy_for",
+            "kv_waiting",
+            "cache_entries",
+            "cache_bytes",
+            "cache_stats_age",
+            "cache_disk_enabled",
+            "cache_disk_bytes",
+            "cache_disk_budget",
+            "cache_lookup_hit_rate",
+            "cache_evictions_per_min",
+            "cache_rewrites_per_min",
+            "cache_disk_hits_per_min",
+            "cache_disk_cut_backs_per_min",
+        ] {
+            assert!(value[field].is_null(), "{field}");
+        }
+        let fixture = include_str!("../../../fixtures/halogen-0.18.1/metrics.txt");
+        let (frame, _) = tracker.sample(60_000, Some(fixture), Status::Up);
+        assert_eq!(frame.sample.cache_bytes, Some(1047506868.0));
+        assert_eq!(frame.sample.cache_entries, Some(9.0));
+        assert_eq!(frame.sample.cache_stats_age, Some(1.999));
+        assert_eq!(frame.sample.cache_disk_enabled, Some(0.0));
+        assert_eq!(frame.sample.cache_disk_bytes, Some(0.0));
+        assert_eq!(frame.sample.cache_disk_budget, Some(0.0));
+        assert_eq!(frame.sample.kv_waiting, Some(0.0));
+    }
     fn text(c: &[f64; 11], ps: f64, gs: f64) -> String {
         let mut text = COUNTERS
             .iter()

@@ -18,6 +18,17 @@ pub fn parse(text: &str) -> BTreeMap<String, f64> {
 mod tests {
     use super::*;
     #[test]
+    fn parses_0181_with_labelled_build_info_without_losing_cache_metrics() {
+        let values = parse(include_str!("../../../fixtures/halogen-0.18.1/metrics.txt"));
+        assert_eq!(values["halogen:cache_bytes"], 1047506868.0);
+        assert_eq!(values["halogen:cache_misses_total"], 7.0);
+        assert_eq!(values["halogen:cache_stats_age_seconds"], 1.999);
+        assert_eq!(
+            values["halogen:build_info{version=\"0.18.1\",engine_version=\"0.18.1\",model=\"halogen-v2-abliterated\"}"],
+            1.0
+        );
+    }
+    #[test]
     fn parses_real_halogen_fixture_and_optional_lines() {
         let values = parse(include_str!("../../../fixtures/halogen-0.17.3/metrics.txt"));
         assert_eq!(values["halogen:requests_total"], 1.0);

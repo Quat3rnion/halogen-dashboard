@@ -44,12 +44,19 @@ const TOTAL_KEYS: (keyof Totals)[] = [
   'draft_tokens',
   'draft_accepted',
   'structured_requests',
+  'cache_hits',
+  'cache_misses',
+  'cache_evicted',
+  'cache_rewrites',
+  'cache_disk_hits',
+  'cache_disk_cut_backs',
 ];
 
 function addDelta(base: Totals, now: Totals | null, then: Totals | null): Totals {
   if (!now || !then) return base;
   const out = { ...base };
-  for (const k of TOTAL_KEYS) out[k] = base[k] + Math.max(0, now[k] - then[k]);
+  // An older Collector does not send the newer keys. Count them as 0, not NaN.
+  for (const k of TOTAL_KEYS) out[k] = (base[k] ?? 0) + Math.max(0, (now[k] ?? 0) - (then[k] ?? 0));
   return out;
 }
 

@@ -84,9 +84,22 @@ export class TimeBuffer {
       mean_service_time: x.mean_service_time,
       prompt_cache_hit_rate: x.prompt_cache_hit_rate,
       draft_acceptance: x.draft_acceptance,
+      // New fields are missing on an older Collector: `?? null` keeps them null, not undefined.
+      busy_for: x.busy_for ?? null,
+      kv_waiting: x.kv_waiting ?? null,
+      cache_entries: x.cache_entries ?? null,
+      cache_bytes: x.cache_bytes ?? null,
+      cache_lookup_hit_rate: x.cache_lookup_hit_rate ?? null,
+      cache_evictions_per_min: x.cache_evictions_per_min ?? null,
+      cache_rewrites_per_min: x.cache_rewrites_per_min ?? null,
+      cache_disk_hits_per_min: x.cache_disk_hits_per_min ?? null,
+      cache_disk_cut_backs_per_min: x.cache_disk_cut_backs_per_min ?? null,
+      cache_disk_bytes: x.cache_disk_bytes ?? null,
       busy_slots_max: x.busy_slots,
       queued_max: x.queued,
       kv_use_max: x.kv_use,
+      busy_for_max: x.busy_for ?? null,
+      kv_waiting_max: x.kv_waiting ?? null,
     };
     for (const f of SERIES_FIELDS) this.cols[f].push(row[f]);
     return true;

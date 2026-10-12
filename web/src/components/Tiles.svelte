@@ -10,6 +10,7 @@
   const kTone = $derived(kvTone(s?.kv_use));
   const busy = $derived(s?.busy_slots ?? null);
   const svc = $derived(secondsParts(s?.mean_service_time));
+  const oldest = $derived(secondsParts(s?.busy_for));
   const tot = $derived(dash.rangeTotals);
 </script>
 
@@ -37,6 +38,7 @@
     {/snippet}
   </Tile>
   <Tile label="Queued requests" value={s?.queued === null || s?.queued === undefined ? DASH : int(s.queued)} field="queued" tone={sTone} />
+  <Tile label="Oldest request age" value={oldest[0]} unit={oldest[1]} field="busy_for" />
   <Tile label="KV pool use" value={pctValue(s?.kv_use)} unit="%" field="kv_use" sparkMax={1} tone={kTone} />
   <Tile label="Prompt-cache hit rate" value={pctValue(s?.prompt_cache_hit_rate)} unit="%" field="prompt_cache_hit_rate" sparkMax={1} />
   <Tile label="Draft acceptance" value={pctValue(s?.draft_acceptance)} unit="%" field="draft_acceptance" sparkMax={1} />
@@ -69,7 +71,7 @@
     gap: var(--sp-2);
   }
   .totals {
-    grid-column: span 3;
+    grid-column: span 2;
     background: var(--raised);
     border: 1px solid var(--line-soft);
     border-radius: var(--r-tile);
@@ -128,13 +130,7 @@
       grid-template-columns: repeat(4, minmax(0, 1fr));
     }
     .totals {
-      grid-column: span 1;
-    }
-    .totals dl {
-      gap: var(--sp-2);
-    }
-    .totals dd {
-      font-size: 1.125rem;
+      grid-column: 1 / -1;
     }
   }
   @media (max-width: 720px) {

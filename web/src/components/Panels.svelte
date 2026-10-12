@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ago, absTime, bytes, compact, int, pct, DASH } from '../lib/format';
+  import { ago, absTime, bytes, compact, int, pct, span, DASH } from '../lib/format';
   import { kvTone, STATUS_LABEL } from '../lib/status';
   import { dash } from '../lib/store.svelte';
   import type { HEvent } from '../lib/types';
@@ -11,7 +11,20 @@
   const capBytes = $derived(info ? info.prompt_cache_cap_mb * 1024 * 1024 : null);
   const pool = $derived(c?.pool ?? null);
   const poolUse = $derived(pool && pool.positions ? pool.used / pool.positions : null);
-  const reserved = $derived(dash.latest?.kv_reserved ?? null);
+  const latest = $derived(dash.latest);
+  const reserved = $derived(latest?.kv_reserved ?? null);
+  const lifetime = $derived(latest?.totals ?? null);
+  // An old Halogen sends null for these fields. Null shows as a dash.
+  const diskOn = $derived((latest?.cache_disk_enabled ?? 0) > 0);
+  // Totals count a missing counter as 0. Show a dash instead when this Halogen does not report the series.
+  const hasNew = $derived(latest?.cache_disk_enabled !== null && latest?.cache_disk_enabled !== undefined);
+  const newTotal = (v: number | undefined): string => (hasNew ? int(v) : DASH);
+  const statsAge = $derived(latest?.cache_stats_age ?? null);
+  /** Cache values come from the engine's last report. Older than this, they can be out of date. */
+  const STALE_S = 30;
+  const stale = $derived(statsAge !== null && statsAge > STALE_S);
+  // The Sample is fresher than the /cache Scrape. Use /cache only when the Sample has no value.
+  const waiting = $derived(latest?.kv_waiting ?? pool?.waiting_for_room ?? null);
   const events = $derived(dash.logEvents);
 
   function evText(e: HEvent): string {
@@ -60,6 +73,21 @@
         <dt>Evicted</dt><dd class="num">{int(c.evicted)}</dd>
         <dt>Refused</dt><dd class="num">{int(c.refused)}</dd>
         <dt>Prompt tokens saved</dt><dd class="num" title={int(c.prompt_tokens_saved)}>{compact(c.prompt_tokens_saved)}</dd>
+        <dt>Last-message rewrites</dt><dd class="num">{newTotal(lifetime?.cache_rewrites)}</dd>
+        <dt>Disk tier</dt>
+        <dd class="num">
+          {#if diskOn}{bytes(latest?.cache_disk_bytes)} of {bytes(latest?.cache_disk_budget)}{:else}Off{/if}
+        </dd>
+        <dt>Disk hits</dt><dd class="num">{newTotal(lifetime?.cache_disk_hits)}</dd>
+        <dt>Disk cut-backs</dt><dd class="num">{newTotal(lifetime?.cache_disk_cut_backs)}</dd>
+        <dt>Stats age</dt>
+        <dd
+          class="num"
+          class:stale
+          title={stale ? 'The engine has not reported prompt-cache numbers recently. Values can be out of date.' : undefined}
+        >
+          {span(statsAge === null ? null : statsAge * 1000)}{#if stale}<span class="sr-only">, values can be out of date</span>{/if}
+        </dd>
       </dl>
     {:else}
       <p class="none">No /cache Scrape yet.</p>
@@ -82,7 +110,7 @@
         <dt>Reserved</dt><dd class="num">{int(reserved)}</dd>
         <dt>Busy regions</dt><dd class="num">{int(pool.busy_regions)}</dd>
         <dt>Held regions</dt><dd class="num">{int(pool.held_regions)}</dd>
-        <dt>Waiting for room</dt><dd class="num" class:alert={pool.waiting_for_room > 0}>{int(pool.waiting_for_room)}</dd>
+        <dt>Waiting for room</dt><dd class="num" class:alert={waiting !== null && waiting > 0}>{int(waiting)}</dd>
         <dt>Relocated</dt><dd class="num">{int(pool.relocated)}</dd>
       </dl>
     {:else}
@@ -199,6 +227,10 @@
   .kv dd {
     margin: 0;
     text-align: right;
+  }
+  .kv dd.stale {
+    color: var(--faint);
+    font-style: italic;
   }
   .kv dd.alert {
     color: var(--degraded);

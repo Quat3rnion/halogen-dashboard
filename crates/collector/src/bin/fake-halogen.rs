@@ -1,7 +1,7 @@
 use clap::Parser;
 
 #[derive(Parser)]
-#[command(about = "Simulate Halogen 0.17.3 status surfaces")]
+#[command(about = "Simulate Halogen 0.18.1 status surfaces")]
 struct Args {
     #[arg(long, env = "FAKE_HALOGEN_LISTEN", default_value = "127.0.0.1:8791")]
     listen: std::net::SocketAddr,

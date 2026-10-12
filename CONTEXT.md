@@ -37,7 +37,7 @@ A period when Scrapes of Halogen fail. The Collector stores no values for an Out
 _Avoid_: downtime, gap, offline
 
 **Restart**:
-The point where a Halogen counter goes down, which shows that Halogen started again.
+The point where an original Halogen request, token or seconds counter goes down, which shows that Halogen started again. A cache counter decrease does not cause a Restart.
 _Avoid_: reset, reboot, crash
 
 **Uptime**:
@@ -111,6 +111,30 @@ _Avoid_: KV cache, cache
 **Prompt-cache hit rate**:
 The share of prompt tokens that the Prompt cache covered.
 _Avoid_: cache hit rate, token hit rate
+
+**Cache lookup hit rate**:
+The share of Prompt-cache lookups that found an entry. This is not the Prompt-cache hit rate, which counts tokens.
+_Avoid_: cache hit rate, token hit rate
+
+**Eviction**:
+A Prompt-cache entry removed to make room.
+_Avoid_: cache clear, cut-back
+
+**Last-message rewrite**:
+A request that resumed inside the previous request's last message and kept its Prompt cache.
+_Avoid_: retry, cache reset
+
+**Disk tier**:
+The Prompt-cache store on disk. Halogen sets its location with `HALOGEN_CACHE_DIR`.
+_Avoid_: swap, KV pool
+
+**Cut-back**:
+The Disk tier trimmed to its budget.
+_Avoid_: eviction, cache clear
+
+**Oldest request age**:
+The run time of the oldest running request, in seconds. The Sample field is `busy_for`.
+_Avoid_: uptime, mean service time
 
 **Draft acceptance**:
 The share of draft tokens that Halogen accepts during speculative decoding.

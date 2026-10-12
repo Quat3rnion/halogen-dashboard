@@ -1,6 +1,6 @@
 # Collector API contract
 
-This document is the contract between the Collector (Rust, `crates/`) and the web page (`web/`). Terms are defined in `CONTEXT.md`. Halogen surface shapes are in `fixtures/halogen-0.17.3/`.
+This document is the contract between the Collector (Rust, `crates/`) and the web page (`web/`). Terms are defined in `CONTEXT.md`. Halogen surface shapes are in `fixtures/halogen-0.18.1/`. The Collector also supports the older shapes in `fixtures/halogen-0.17.3/`.
 
 ## Ports (development)
 
@@ -36,7 +36,7 @@ A failed `/metrics` Scrape starts or continues an Outage. The Sample for that ti
 
 ## Rate calculation
 
-The Collector keeps **adjusted counters**. An adjusted counter goes up for all time. At a Restart (any Halogen counter goes down), the Collector adds the last value before the Restart to an offset for each counter.
+The Collector keeps **adjusted counters**. An adjusted counter goes up for all time. At a Restart (one of the original request, token or seconds counters goes down), the Collector adds the last value before the Restart to an offset for each counter. A decrease in a cache counter adds its last adjusted value to its offset, but does not cause a Restart event.
 
 The Halogen seconds counters have only 6 significant digits. Calculate the change in prefill time as `delta(prompt_tokens) / llamacpp:prompt_tokens_seconds` when the gauge is more than 0. Do the same for generation time with `llamacpp:predicted_tokens_seconds`. Otherwise use the change in the seconds counter.
 
@@ -52,6 +52,13 @@ All rates use a rolling window of 30 s (the "rate window") in live data. In rang
 | `mean_service_time` | d(prompt_seconds + predicted_seconds) / d(requests) | s, `null` if d(requests) = 0 |
 | `prompt_cache_hit_rate` | d(cached) / (d(cached) + d(prompt_tokens)) | 0..1, `null` if denominator = 0 |
 | `draft_acceptance` | d(draft_accepted) / d(draft_tokens) | 0..1, `null` if d(draft_tokens) = 0 |
+| `cache_lookup_hit_rate` | d(cache_hits) / (d(cache_hits) + d(cache_misses)) | 0..1, `null` if denominator = 0 |
+| `cache_evictions_per_min` | d(cache_evicted) / wall seconds x 60 | entries/min |
+| `cache_rewrites_per_min` | d(cache_rewrites) / wall seconds x 60 | rewrites/min |
+| `cache_disk_hits_per_min` | d(cache_disk_hits) / wall seconds x 60 | hits/min |
+| `cache_disk_cut_backs_per_min` | d(cache_disk_cut_backs) / wall seconds x 60 | cut-backs/min |
+
+Cache rates are `null` when the counter is missing at either end of the window. All new Sample fields are `null` on Halogen 0.17.3. New Totals fields start at 0 when the counters are missing. Cache values come from the engine's last report. They can lag by `cache_stats_age` seconds.
 
 ## Data types
 
@@ -74,6 +81,19 @@ interface Sample {
   mean_service_time: number | null;
   prompt_cache_hit_rate: number | null;
   draft_acceptance: number | null;
+  busy_for: number | null;             // oldest running request, seconds
+  kv_waiting: number | null;           // halogen:kv_pool_waiting_for_room
+  cache_entries: number | null;
+  cache_bytes: number | null;
+  cache_stats_age: number | null;      // halogen:cache_stats_age_seconds
+  cache_disk_enabled: number | null;   // 0 or 1
+  cache_disk_bytes: number | null;
+  cache_disk_budget: number | null;    // halogen:cache_disk_budget_bytes
+  cache_lookup_hit_rate: number | null;
+  cache_evictions_per_min: number | null;
+  cache_rewrites_per_min: number | null;
+  cache_disk_hits_per_min: number | null;
+  cache_disk_cut_backs_per_min: number | null;
   totals: Totals | null;     // adjusted counters, for tiles
 }
 
@@ -81,6 +101,8 @@ interface Totals {
   requests: number; prompt_tokens: number; predicted_tokens: number;
   cached_tokens: number; draft_tokens: number; draft_accepted: number;
   structured_requests: number;
+  cache_hits: number; cache_misses: number; cache_evicted: number;
+  cache_rewrites: number; cache_disk_hits: number; cache_disk_cut_backs: number;
 }
 
 interface Info {                 // from the last good /health and /v1/models
@@ -120,17 +142,23 @@ interface Event { t: number; kind: EventKind; from?: Status; to?: Status; detail
 interface Series {
   from: number; to: number; step: number; source: "raw" | "rollup";
   t: number[];                      // bucket start, ms
-  // one array per Sample number field, same length as t, null for no data or Outage:
+  // columns have the same length as t; null for no data or Outage:
   busy_slots: (number|null)[]; queued: ...; kv_use: ...; kv_reserved_use: ...; // kv_reserved / kv_pool
   gen_speed: ...; throughput: ...; prefill_speed: ...; prefill_throughput: ...;
   requests_per_min: ...; mean_service_time: ...;
   prompt_cache_hit_rate: ...; draft_acceptance: ...;
+  busy_for: ...; kv_waiting: ...; cache_entries: ...; cache_bytes: ...;
+  cache_lookup_hit_rate: ...; cache_evictions_per_min: ...; cache_rewrites_per_min: ...;
+  cache_disk_hits_per_min: ...; cache_disk_cut_backs_per_min: ...; cache_disk_bytes: ...;
   // gauge maxima in each bucket, for spikes:
   busy_slots_max: ...; queued_max: ...; kv_use_max: ...;
+  busy_for_max: ...; kv_waiting_max: ...;
   status: (Status|null)[];          // worst status in the bucket
   totals_in_range: Totals;          // adjusted counter change from `from` to `to`
 }
 ```
+
+Gauge columns show the mean in each bucket. Rate columns use counter changes over the rate window, not the mean of Sample rates. `cache_stats_age`, `cache_disk_enabled` and `cache_disk_budget` are live Sample fields only.
 
 `GET /api/events?from=<ms>&to=<ms>` returns `Event[]`, oldest first.
 

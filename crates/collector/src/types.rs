@@ -19,6 +19,31 @@ pub struct Totals {
     pub draft_tokens: f64,
     pub draft_accepted: f64,
     pub structured_requests: f64,
+    #[serde(default)]
+    pub cache_hits: f64,
+    #[serde(default)]
+    pub cache_misses: f64,
+    #[serde(default)]
+    pub cache_evicted: f64,
+    #[serde(default)]
+    pub cache_rewrites: f64,
+    #[serde(default)]
+    pub cache_disk_hits: f64,
+    #[serde(default)]
+    pub cache_disk_cut_backs: f64,
+}
+
+impl Totals {
+    pub fn cache_counters(self) -> [f64; 6] {
+        [
+            self.cache_hits,
+            self.cache_misses,
+            self.cache_evicted,
+            self.cache_rewrites,
+            self.cache_disk_hits,
+            self.cache_disk_cut_backs,
+        ]
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -38,6 +63,19 @@ pub struct Sample {
     pub mean_service_time: Option<f64>,
     pub prompt_cache_hit_rate: Option<f64>,
     pub draft_acceptance: Option<f64>,
+    pub busy_for: Option<f64>,
+    pub kv_waiting: Option<f64>,
+    pub cache_entries: Option<f64>,
+    pub cache_bytes: Option<f64>,
+    pub cache_stats_age: Option<f64>,
+    pub cache_disk_enabled: Option<f64>,
+    pub cache_disk_bytes: Option<f64>,
+    pub cache_disk_budget: Option<f64>,
+    pub cache_lookup_hit_rate: Option<f64>,
+    pub cache_evictions_per_min: Option<f64>,
+    pub cache_rewrites_per_min: Option<f64>,
+    pub cache_disk_hits_per_min: Option<f64>,
+    pub cache_disk_cut_backs_per_min: Option<f64>,
     pub totals: Option<Totals>,
 }
 

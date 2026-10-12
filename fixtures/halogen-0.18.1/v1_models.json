@@ -1,0 +1,53 @@
+{
+ "object": "list",
+ "has_more": false,
+ "first_id": "halogen-v2-abliterated",
+ "last_id": "qwen3.5-2b",
+ "data": [
+  {
+   "id": "halogen-v2-abliterated",
+   "object": "model",
+   "type": "model",
+   "display_name": "halogen-v2-abliterated",
+   "created_at": "1970-01-01T00:00:00Z",
+   "owned_by": "halogen",
+   "created": 0,
+   "max_model_len": 262144,
+   "context_length": 262144,
+   "meta": {
+    "n_ctx_train": 262144,
+    "n_ctx": 262144
+   },
+   "max_tokens_cap": 65536,
+   "max_tokens_default": 8192
+  },
+  {
+   "id": "decider-0.8b",
+   "object": "model",
+   "type": "model",
+   "display_name": "decider-0.8b",
+   "created_at": "1970-01-01T00:00:00Z",
+   "owned_by": "halogen",
+   "created": 0,
+   "max_model_len": 4096,
+   "context_length": 4096,
+   "backend": "npu",
+   "task": "decision",
+   "source": "Mapika/decider-0.8b"
+  },
+  {
+   "id": "qwen3.5-2b",
+   "object": "model",
+   "type": "model",
+   "display_name": "qwen3.5-2b",
+   "created_at": "1970-01-01T00:00:00Z",
+   "owned_by": "halogen",
+   "created": 0,
+   "max_model_len": 18432,
+   "context_length": 18432,
+   "backend": "npu",
+   "task": "generate",
+   "source": "Qwen/Qwen3.5-2B@15852e8c16360a2fea060d615a32b45270f8a8fc"
+  }
+ ]
+}
