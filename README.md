@@ -107,3 +107,7 @@ You can trigger simulator events: `curl -X POST http://127.0.0.1:8791/_sim/{outa
 - `docs/collector-api.md`: Collector API, rate formulas and storage
 - `docs/adr/`: decisions
 - `fixtures/halogen-0.17.3/`: real Halogen 0.17.3 responses
+
+## License
+
+Licensed under either of [Apache License 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT), at your option.
