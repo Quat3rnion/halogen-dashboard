@@ -10,6 +10,9 @@ struct Args {
         default_value = "http://192.168.50.177:8731"
     )]
     halogen_url: String,
+    /// Halogen API key, sent as a Bearer token. Needed when Halogen requires a key.
+    #[arg(long, env = "HALOGEN_API_KEY", hide_env_values = true)]
+    halogen_api_key: Option<String>,
     #[arg(long, env = "HALOGEN_DASHBOARD_LISTEN", default_value = "0.0.0.0:8790")]
     listen: SocketAddr,
     #[arg(
@@ -53,5 +56,5 @@ async fn main() -> anyhow::Result<()> {
     let app = halogen_dashboard::collector::App::new(&args.db)?;
     let listener = tokio::net::TcpListener::bind(args.listen).await?;
     tracing::info!(listen=%args.listen,halogen_url=%args.halogen_url,"Collector started");
-    halogen_dashboard::collector::serve(listener, app, &args.halogen_url).await
+    halogen_dashboard::collector::serve(listener, app, &args.halogen_url, args.halogen_api_key.as_deref()).await
 }
