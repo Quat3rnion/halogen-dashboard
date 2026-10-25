@@ -54,6 +54,7 @@ The data is in the `halogen-dashboard-data` volume.
 | Variable | Default | Use |
 | --- | --- | --- |
 | `HALOGEN_URL` | none, required | Base URL of Halogen |
+| `HALOGEN_API_KEY` | none | Halogen API key, sent as a Bearer token. Set it when Halogen requires a key |
 | `HALOGEN_DASHBOARD_BIND` | `127.0.0.1` | Host address for the port |
 | `HALOGEN_DASHBOARD_PORT` | `8790` | Host port |
 | `RUST_LOG` | `info` | Log level |
