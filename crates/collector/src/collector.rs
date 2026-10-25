@@ -256,7 +256,17 @@ impl App {
             .with_state(self.clone())
     }
     pub fn start(&self, url: &str) -> Result<Vec<JoinHandle<()>>> {
-        let client = reqwest::Client::builder().build()?;
+        self.start_with_key(url, None)
+    }
+    /// Like `start`, but sends `Authorization: Bearer <api_key>` when Halogen requires a key.
+    pub fn start_with_key(&self, url: &str, api_key: Option<&str>) -> Result<Vec<JoinHandle<()>>> {
+        let mut headers = reqwest::header::HeaderMap::new();
+        if let Some(key) = api_key.map(str::trim).filter(|k| !k.is_empty()) {
+            let mut value = reqwest::header::HeaderValue::from_str(&format!("Bearer {key}"))?;
+            value.set_sensitive(true);
+            headers.insert(reqwest::header::AUTHORIZATION, value);
+        }
+        let client = reqwest::Client::builder().default_headers(headers).build()?;
         let mut tasks = Vec::new();
         for (surface, period, timeout) in [("metrics", 1, 2), ("health", 2, 3), ("cache", 5, 3)] {
             let app = self.clone();
@@ -331,8 +341,8 @@ impl App {
     }
 }
 
-pub async fn serve(listener: TcpListener, app: App, url: &str) -> Result<()> {
-    let tasks = app.start(url)?;
+pub async fn serve(listener: TcpListener, app: App, url: &str, api_key: Option<&str>) -> Result<()> {
+    let tasks = app.start_with_key(url, api_key)?;
     let result = axum::serve(listener, app.router())
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;

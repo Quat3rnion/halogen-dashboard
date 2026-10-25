@@ -8,6 +8,7 @@ services:
     restart: unless-stopped
     environment:
       HALOGEN_URL: ${HALOGEN_URL:?set HALOGEN_URL in .env}
+      HALOGEN_API_KEY: ${HALOGEN_API_KEY:-}
       HALOGEN_DASHBOARD_LISTEN: 0.0.0.0:8790
       HALOGEN_DASHBOARD_DB: /data/halogen-dashboard.sqlite
       RUST_LOG: ${RUST_LOG:-info}

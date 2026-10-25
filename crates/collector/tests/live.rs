@@ -247,3 +247,48 @@ async fn sse_sends_keepalive_even_while_samples_arrive() {
     assert!(received.contains("event: sample"));
     assert!(received.starts_with("event: snapshot"));
 }
+
+#[tokio::test]
+async fn api_key_is_sent_as_bearer_token() {
+    use axum::{Router, http::HeaderMap, http::StatusCode, response::IntoResponse, routing::get};
+    async fn metrics(headers: HeaderMap) -> axum::response::Response {
+        if headers.get("authorization").and_then(|v| v.to_str().ok()) == Some("Bearer secret") {
+            include_str!("../../../fixtures/halogen-0.17.3/metrics.txt").into_response()
+        } else {
+            StatusCode::UNAUTHORIZED.into_response()
+        }
+    }
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let halogen = Router::new().route("/metrics", get(metrics));
+    let halogen_task = tokio::spawn(async move {
+        axum::serve(listener, halogen).await.unwrap();
+    });
+    let mut latest = Vec::new();
+    for key in [None, Some(" secret
+")] {
+        let app = App::new(":memory:").unwrap();
+        let scrapes = app.start_with_key(&url, key).unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let collector = format!("http://{}", listener.local_addr().unwrap());
+        let router = app.router();
+        let collector_task = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        let snapshot: Value = reqwest::get(format!("{collector}/api/snapshot"))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        for task in scrapes {
+            task.abort();
+        }
+        collector_task.abort();
+        latest.push(snapshot["latest"].clone());
+    }
+    halogen_task.abort();
+    assert!(!latest[0]["totals"].is_object(), "metrics read without the key");
+    assert!(latest[1]["totals"].is_object(), "key not sent as a Bearer token");
+}
