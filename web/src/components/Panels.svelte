@@ -8,7 +8,12 @@
   const c = $derived(dash.cache);
   const info = $derived(dash.info);
   const npu = $derived(info?.npu ?? null);
-  const capBytes = $derived(info ? info.prompt_cache_cap_mb * 1024 * 1024 : null);
+  // Halogen's prompt_cache.cap_mb is the size of ONE entry (its O(1) state snapshot), not a cap
+  // on the whole cache: the startup log says "N entries ... 111 MiB each". The cache is full
+  // at max_entries of them.
+  const capBytes = $derived(
+    info && c?.max_entries ? info.prompt_cache_cap_mb * 1024 * 1024 * c.max_entries : null,
+  );
   const pool = $derived(c?.pool ?? null);
   const poolUse = $derived(pool && pool.positions ? pool.used / pool.positions : null);
   const latest = $derived(dash.latest);
