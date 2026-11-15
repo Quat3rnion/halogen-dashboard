@@ -23,6 +23,7 @@ The screenshots show simulated data from `fake-halogen`.
 - Prompt cache, KV pool and NPU details, and an event log.
 - Time ranges: Live 5 min, 15 min, 1 h, 6 h, 24 h, 7 d and 30 d. The charts show Outages as gaps and Restarts as markers.
 - Dark and light themes. The default theme follows the system setting.
+- Arrange: move, resize and hide the charts and panels (drag or arrow buttons). The layout is saved in the browser; Reset to default restores it.
 
 `CONTEXT.md` defines each term.
 

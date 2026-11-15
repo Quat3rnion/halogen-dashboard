@@ -3,6 +3,9 @@
   import { kvTone, STATUS_LABEL } from '../lib/status';
   import { dash } from '../lib/store.svelte';
   import type { HEvent } from '../lib/types';
+
+  /** One detail panel; the page places each one as a movable block. */
+  let { id }: { id: 'cache' | 'kv' | 'npu' | 'log' } = $props();
   import Meter from './Meter.svelte';
 
   const c = $derived(dash.cache);
@@ -52,7 +55,7 @@
   }
 </script>
 
-<section class="panels" aria-label="Details">
+{#if id === 'cache'}
   <article class="card panel">
     <header>
       <h2>Prompt cache</h2>
@@ -99,6 +102,7 @@
     {/if}
   </article>
 
+{:else if id === 'kv'}
   <article class="card panel">
     <header>
       <h2>KV pool</h2>
@@ -123,6 +127,7 @@
     {/if}
   </article>
 
+{:else if id === 'npu'}
   <article class="card panel">
     <header>
       <h2>NPU</h2>
@@ -152,6 +157,7 @@
     {/if}
   </article>
 
+{:else if id === 'log'}
   <article class="card panel log">
     <header>
       <h2>Event log</h2>
@@ -178,15 +184,9 @@
       <p class="none">No Restarts, Outages or Status changes {dash.isLive ? 'yet' : 'in this range'}.</p>
     {/if}
   </article>
-</section>
+{/if}
 
 <style>
-  .panels {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1.4fr);
-    gap: var(--sp-3);
-    align-items: start;
-  }
   .panel {
     padding: var(--sp-3) var(--sp-4) var(--sp-4);
     display: flex;
@@ -359,16 +359,5 @@
   .abs {
     font-size: var(--fs-xs);
     color: var(--faint);
-  }
-
-  @media (max-width: 1500px) {
-    .panels {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-  }
-  @media (max-width: 720px) {
-    .panels {
-      grid-template-columns: minmax(0, 1fr);
-    }
   }
 </style>
