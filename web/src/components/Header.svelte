@@ -2,6 +2,7 @@
   import { ago, span, DASH } from '../lib/format';
   import { STATUS_LABEL, statusReason } from '../lib/status';
   import { dash, RANGES, type RangeId } from '../lib/store.svelte';
+  import { layout } from '../lib/layout.svelte';
   import { theme, type ThemePref } from '../lib/theme.svelte';
 
   const info = $derived(dash.info);
@@ -114,6 +115,15 @@
         </label>
       {/each}
     </fieldset>
+
+    <button
+      type="button"
+      class="arrange"
+      class:on={layout.arranging}
+      aria-pressed={layout.arranging}
+      title="Move, size and hide the blocks of the page"
+      onclick={() => (layout.arranging = !layout.arranging)}>Arrange</button
+    >
   </div>
 </header>
 
@@ -270,6 +280,31 @@
     }
   }
 
+  .arrange {
+    font: inherit;
+    font-size: var(--fs-sm);
+    min-height: 34px;
+    padding: 0 var(--sp-3);
+    border: 1px solid var(--line);
+    border-radius: var(--r-ctl);
+    background: var(--surface);
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .arrange:hover {
+    color: var(--text);
+    background: var(--accent-soft);
+  }
+  .arrange.on {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+    font-weight: 600;
+  }
+  .arrange:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
   .seg {
     display: inline-flex;
     margin: 0;
